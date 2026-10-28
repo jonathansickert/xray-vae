@@ -1,19 +1,19 @@
 {
  "n_test_images": 624,
- "final_epoch": {
-  "epoch": 100,
-  "lr": 1.1231131887499658e-06,
+ "config": {
+  "epochs": 100,
+  "batch_size": 32,
+  "lr": 0.0005,
+  "min_lr": 1e-06,
+  "latent_dim": 128,
   "beta": 1.0,
-  "train_loss": 528.1495267715923,
-  "train_recon": 369.8387576612227,
-  "train_kl": 158.31077042094037,
-  "val_loss": 708.9929809570312,
-  "val_recon": 559.3579711914062,
-  "val_kl": 149.63502502441406
+  "beta_warmup_epochs": 10,
+  "num_workers": 4,
+  "out_dir": "checkpoint"
  },
- "test_recon_mse_per_pixel": 0.011375722881311025,
- "fid_recon": 0.1723150756244906,
- "is_recon": 2.0187764537419723,
- "fid_samples": 0.13489725702736732,
- "is_samples": 1.925515387649687
+ "test_recon_mse": 0.011057042827208837,
+ "fid_recon": 0.20007046653123706,
+ "inception_recon": 1.9798906739616386,
+ "fid_sample": 0.1439307491998884,
+ "inception_sample": 1.8816967381057936
 }
