@@ -4,8 +4,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
-import torch.nn.functional as F
-from ignite.metrics import FID, InceptionScore
+from sklearn.mixture import GaussianMixture
+from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.image.inception import InceptionScore
 
 from dataset import XRayDataset, transform
 from model_vae import XrayVAE
@@ -39,9 +40,27 @@ def plot_reconstruction_grid(reals, recons, path, n=4):
     save_grid([reals[idx], recons[idx]], path, row_labels=["real", "recon"], title="Test set reconstructions")
 
 
-def plot_samples_grid(samples, path, n=4):
+def plot_samples_grid(samples, path, n=4, title="Samples, z ~ N(0, I)"):
     """4x1 grid randomly sampled"""
-    save_grid([samples[:n]], path, title="Samples, z ~ N(0, I)")
+    save_grid([samples[:n]], path, title=title)
+
+
+def fit_latent_gmm(model, loader, n_components, seed):
+    """Ex-post density estimation (Ghosh et al. 2020): fit a full-covariance GMM to the
+    aggregate posterior, using one z ~ q(z|x) per training image."""
+    zs = []
+    for x, _ in loader:
+        h = model.encoder(x.to(device))
+        mu, logvar = model.fc_mu(h), model.fc_logvar(h)
+        zs.append(model.reparameterize(mu, logvar).cpu())
+    gmm = GaussianMixture(n_components, covariance_type="full", reg_covar=1e-4, random_state=seed)
+    return gmm.fit(torch.cat(zs).numpy())
+
+
+def sample_gmm(gmm, n):
+    z, _ = gmm.sample(n)
+    # gmm.sample returns codes grouped by component, so shuffle before batching
+    return torch.tensor(z, dtype=torch.float32)[torch.randperm(n)]
 
 
 def plot_training_curves(training_curve, path):
@@ -74,18 +93,17 @@ def plot_training_curves(training_curve, path):
 
 
 def to_inception(x):
-    """[-1, 1] grayscale -> [0, 1] RGB at 299x299"""
     x = (x.clamp(-1, 1) + 1) / 2
-    x = F.interpolate(x, size=(299, 299), mode="bilinear", align_corners=False)
     return x.repeat(1, 3, 1, 1)
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--checkpoint", default="checkpoint", help="directory written by train_vae.py")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint", default="checkpoint")
     parser.add_argument("--out-dir", default="eval_outputs")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--gmm-components", type=int, default=10)
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -116,17 +134,29 @@ def main():
     metrics = {"n_test_images": n}
 
     with torch.no_grad():
+        train_ds = XRayDataset(split="train", transform=transform)
+        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=args.batch_size, shuffle=False, num_workers=4)
+        gmm = fit_latent_gmm(model, train_loader, args.gmm_components, args.seed)
+        z_gmm = sample_gmm(gmm, n)
+
         mse_sum = 0.0
-        fid_recon = FID(device=device)
-        fid_sample = FID(device=device)
-        inception_recon = InceptionScore(device=device)
-        inception_sample = InceptionScore(device=device)
+        fid_recon = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+        fid_sample = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+        fid_real_halves = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+        inception_real = InceptionScore(normalize=True).to(device)
+        inception_recon = InceptionScore(normalize=True).to(device)
+        inception_sample = InceptionScore(normalize=True).to(device)
+        fid_sample_gmm = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+        inception_sample_gmm = InceptionScore(normalize=True).to(device)
 
         reals = []
         recons = []
 
+        start = 0
         for x, _ in test_loader:
             x = x.to(device)
+            samples_gmm = model.decoder(z_gmm[start:start + x.size(0)].to(device))
+            start += x.size(0)
             recon = model.decoder(model.fc_mu(model.encoder(x)))
             samples = model.decoder(torch.randn(x.size(0), latent_dim, device=device))
             reals.append(x.cpu())
@@ -137,21 +167,34 @@ def main():
             real = to_inception(x)
             fake_recon = to_inception(recon)
             fake_sample = to_inception(samples)
-            fid_recon.update((fake_recon, real))
-            fid_sample.update((fake_sample, real))
+            fid_recon.update(real, real=True)
+            fid_recon.update(fake_recon, real=False)
+            fid_sample.update(real, real=True)
+            fid_sample.update(fake_sample, real=False)
+            inception_real.update(real)
             inception_recon.update(fake_recon)
             inception_sample.update(fake_sample)
+            fake_sample_gmm = to_inception(samples_gmm)
+            fid_sample_gmm.update(real, real=True)
+            fid_sample_gmm.update(fake_sample_gmm, real=False)
+            inception_sample_gmm.update(fake_sample_gmm)
 
         metrics["test_recon_mse"] = mse_sum / n
         metrics["fid_recon"] = float(fid_recon.compute())
-        metrics["inception_recon"] = float(inception_recon.compute())
         metrics["fid_sample"] = float(fid_sample.compute())
-        metrics["inception_sample"] = float(inception_sample.compute())
+        metrics["inception_real"] = float(inception_real.compute()[0])
+        metrics["inception_recon"] = float(inception_recon.compute()[0])
+        metrics["inception_sample"] = float(inception_sample.compute()[0])
+        metrics["fid_sample_gmm"] = float(fid_sample_gmm.compute())
+        metrics["inception_sample_gmm"] = float(inception_sample_gmm.compute()[0])
+        metrics["gmm_components"] = args.gmm_components
 
         reals = torch.cat(reals)
         recons = torch.cat(recons)
         plot_reconstruction_grid(reals, recons, out / "reconstructions.png")
         plot_samples_grid(samples, out / "samples.png")
+        plot_samples_grid(samples_gmm, out / "samples_gmm.png",
+                          title=f"Samples, z ~ {args.gmm_components}-component GMM fit to q(z)")
 
     print(metrics)
 

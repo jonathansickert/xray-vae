@@ -1,19 +1,12 @@
 {
  "n_test_images": 624,
- "config": {
-  "epochs": 100,
-  "batch_size": 32,
-  "lr": 0.0005,
-  "min_lr": 1e-06,
-  "latent_dim": 128,
-  "beta": 1.0,
-  "beta_warmup_epochs": 10,
-  "num_workers": 4,
-  "out_dir": "checkpoint"
- },
- "test_recon_mse": 0.011057042827208837,
- "fid_recon": 0.20007046653123706,
- "inception_recon": 1.9798906739616386,
- "fid_sample": 0.1439307491998884,
- "inception_sample": 1.8816967381057936
+ "test_recon_mse": 0.01132565010816623,
+ "fid_recon": 178.83157348632812,
+ "fid_sample": 169.45559692382812,
+ "inception_real": 2.2519137859344482,
+ "inception_recon": 1.9841880798339844,
+ "inception_sample": 2.0898594856262207,
+ "fid_sample_gmm": 173.8623809814453,
+ "inception_sample_gmm": 2.1445960998535156,
+ "gmm_components": 10
 }

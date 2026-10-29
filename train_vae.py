@@ -11,7 +11,7 @@ from model_vae import XrayVAE
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def vae_loss(mse_fn, x, recon, mu, logvar, beta=1.0):
+def elbo_loss(mse_fn, x, recon, mu, logvar, beta):
     recon_loss = mse_fn(recon, x) / x.size(0)
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
     return recon_loss + beta * kl, recon_loss, kl
@@ -19,12 +19,12 @@ def vae_loss(mse_fn, x, recon, mu, logvar, beta=1.0):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--min-lr", type=float, default=1e-6)
     parser.add_argument("--latent-dim", type=int, default=128)
-    parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument("--beta", type=float, default=0.5)
     parser.add_argument("--beta-warmup-epochs", type=int, default=10)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--out-dir", default="checkpoint")
@@ -56,12 +56,14 @@ def main():
     training_curve = []
     for epoch in range(args.epochs):
         model.train()
-        train_loss = train_recon = train_kl = 0.0
+        train_loss = 0.0
+        train_recon = 0.0
+        train_kl = 0.0
         for x, _ in train_loader:
             x = x.to(device)
             mu, logvar, recon = model(x)
             beta = args.beta * min(1.0, step / warmup_steps)
-            loss, recon_loss, kl = vae_loss(mse_loss, x, recon, mu, logvar, beta=beta)
+            loss, recon_loss, kl = elbo_loss(mse_loss, x, recon, mu, logvar, beta=beta)
 
             optimizer.zero_grad()
             loss.backward()
@@ -88,7 +90,7 @@ def main():
             for x, _ in val_loader:
                 x = x.to(device)
                 mu, logvar, recon = model(x)
-                loss, recon_loss, kl = vae_loss(mse_loss, x, recon, mu, logvar, beta=args.beta)
+                loss, recon_loss, kl = elbo_loss(mse_loss, x, recon, mu, logvar, beta=args.beta)
                 val_loss += loss.item() * x.size(0)
                 val_recon += recon_loss.item() * x.size(0)
                 val_kl += kl.item() * x.size(0)
