@@ -1,12 +1,15 @@
 {
  "n_test_images": 624,
- "test_recon_mse": 0.01132565010816623,
- "fid_recon": 178.83157348632812,
- "fid_sample": 169.45559692382812,
- "inception_real": 2.2519137859344482,
- "inception_recon": 1.9841880798339844,
- "inception_sample": 2.0898594856262207,
- "fid_sample_gmm": 173.8623809814453,
- "inception_sample_gmm": 2.1445960998535156,
- "gmm_components": 10
+ "test_recon_mse": 0.011860376271681908,
+ "fid_recon": 125.41737365722656,
+ "fid_sample": 128.1558380126953,
+ "inception_real": 2.252589225769043,
+ "inception_recon": 1.977267861366272,
+ "inception_sample": 2.0159153938293457,
+ "linear_probe": {
+  "accuracy": 0.7868589743589743,
+  "balanced_accuracy": 0.7200854700854701,
+  "roc_auc": 0.9270436116589963,
+  "majority_class_accuracy": 0.625
+ }
 }
